@@ -15,5 +15,5 @@ Outputs:
 Apply:
 ```bash
 terraform init
-terraform apply -var region_a=<REGION_A> -var region_b=<REGION_B>
+terraform apply -var region_a=$(terraform -chdir=.. output -raw region_a) -var region_b=$(terraform -chdir=.. output -raw region_b) -var c2_cluster_name=$(terraform -chdir=.. output -raw c2_cluster_name) -var c1_node_security_group_id=$(terraform -chdir=.. output -raw c1_node_security_group_id) -auto-approve
 ```
