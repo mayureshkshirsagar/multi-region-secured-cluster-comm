@@ -34,3 +34,4 @@ module "eks_c2" {
 output "c2_cluster_name" { value = module.eks_c2.cluster_name }
 output "c2_cluster_endpoint" { value = module.eks_c2.cluster_endpoint }
 output "c2_node_security_group_id" { value = module.eks_c2.node_security_group_id }
+output "c2_cluster_primary_security_group_id" { value = module.eks_c2.cluster_primary_security_group_id }

@@ -4,11 +4,31 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.40"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.0"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = ">= 3.0.0"
+    }
   }
 }
 
-variable "region_a" { type = string }
-variable "region_b" { type = string }
+variable "region_a" {
+  type    = string
+  default = "us-east-1"
+}
+variable "region_b" {
+  type    = string
+  default = "us-west-2"
+}
+
+# EKS cluster name in region_b (C2) for tag scoping
+variable "c2_cluster_name" {
+  type    = string
+  default = "c2-eks"
+}
 
 provider "aws" {
   alias  = "c1"
@@ -63,7 +83,9 @@ data "aws_subnets" "c2_private" {
 }
 
 # Discover the internal NLB created by the K8s Service (must exist before apply)
-# The AWS LB Controller adds tag kubernetes.io/service-name = "<namespace>/<service>"
+# For AWS Load Balancer Controller, tags include:
+# - service.k8s.aws/stack = "<namespace>/<service>"
+# - elbv2.k8s.aws/cluster = "<cluster-name>"
 variable "k8s_service_tag" {
   type    = string
   default = "default/echo-lb"
@@ -71,19 +93,31 @@ variable "k8s_service_tag" {
 
 data "aws_lb" "c2_nlb" {
   provider = aws.c2
-  tags     = { "kubernetes.io/service-name" = var.k8s_service_tag }
+  tags = {
+    "service.k8s.aws/stack" = var.k8s_service_tag
+    "elbv2.k8s.aws/cluster" = var.c2_cluster_name
+  }
 }
 
 # Endpoint Service in C2 that exposes the NLB via PrivateLink
 resource "aws_vpc_endpoint_service" "c2_service" {
   provider = aws.c2
 
-  acceptance_required        = false
+  acceptance_required = false
+
+  supported_regions = [var.region_a, var.region_b]
+
   network_load_balancer_arns = [data.aws_lb.c2_nlb.arn]
 
   allowed_principals = [
     "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.c1.account_id}:root"
   ]
+}
+
+# Allow some propagation time so the service name is discoverable cross-region
+resource "time_sleep" "wait_service_propagation" {
+  depends_on      = [aws_vpc_endpoint_service.c2_service]
+  create_duration = "180s"
 }
 
 data "aws_caller_identity" "c1" { provider = aws.c1 }
@@ -130,6 +164,7 @@ resource "aws_vpc_security_group_ingress_rule" "c1_ep_ingress_nodes_http" {
 # Interface Endpoint in C1 that connects to the Endpoint Service in C2 (cross-region)
 resource "aws_vpc_endpoint" "c1_interface" {
   provider            = aws.c1
+  service_region      = var.region_b
   vpc_id              = data.aws_vpc.c1.id
   service_name        = aws_vpc_endpoint_service.c2_service.service_name
   vpc_endpoint_type   = "Interface"
@@ -138,4 +173,6 @@ resource "aws_vpc_endpoint" "c1_interface" {
   private_dns_enabled = false
 
   dns_options { dns_record_ip_type = "ipv4" }
+
+  depends_on = [time_sleep.wait_service_propagation]
 }

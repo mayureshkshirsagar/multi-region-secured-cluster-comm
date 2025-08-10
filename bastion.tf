@@ -132,9 +132,10 @@ if ! rpm -q amazon-ssm-agent >/dev/null 2>&1; then
 fi
 systemctl enable --now amazon-ssm-agent || true
 
-# Detect arch for kubectl
+# Detect arch for kubectl/eksctl
 ARCH=$(uname -m)
 KUBECTL_ARCH="amd64"; [ "$ARCH" = "aarch64" ] && KUBECTL_ARCH="arm64"
+EKSCTL_ARCH="$KUBECTL_ARCH"
 
 # kubectl (pin to v1.29.7)
 if ! command -v kubectl >/dev/null 2>&1; then
@@ -148,6 +149,12 @@ if ! command -v helm >/dev/null 2>&1; then
   curl -fsSL -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
   chmod 700 /tmp/get_helm.sh
   /tmp/get_helm.sh >/dev/null 2>&1 || true
+fi
+
+# eksctl
+if ! command -v eksctl >/dev/null 2>&1; then
+  curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_$${EKSCTL_ARCH}.tar.gz" | tar xz -C /tmp
+  install -m 0755 /tmp/eksctl /usr/local/bin/eksctl
 fi
 EOT
   metadata_options {
@@ -318,9 +325,10 @@ if ! rpm -q amazon-ssm-agent >/dev/null 2>&1; then
 fi
 systemctl enable --now amazon-ssm-agent || true
 
-# Detect arch for kubectl
+# Detect arch for kubectl/eksctl
 ARCH=$(uname -m)
 KUBECTL_ARCH="amd64"; [ "$ARCH" = "aarch64" ] && KUBECTL_ARCH="arm64"
+EKSCTL_ARCH="$KUBECTL_ARCH"
 
 # kubectl (pin to v1.29.7)
 if ! command -v kubectl >/dev/null 2>&1; then
@@ -334,6 +342,12 @@ if ! command -v helm >/dev/null 2>&1; then
   curl -fsSL -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
   chmod 700 /tmp/get_helm.sh
   /tmp/get_helm.sh >/dev/null 2>&1 || true
+fi
+
+# eksctl
+if ! command -v eksctl >/dev/null 2>&1; then
+  curl -sL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_$${EKSCTL_ARCH}.tar.gz" | tar xz -C /tmp
+  install -m 0755 /tmp/eksctl /usr/local/bin/eksctl
 fi
 EOT
   metadata_options {
@@ -401,6 +415,113 @@ resource "aws_vpc_endpoint" "c2_ssmmessages" {
   subnet_ids          = module.vpc_c2.private_subnets
   security_group_ids  = [aws_security_group.c2_ssm_endpoints[0].id]
   private_dns_enabled = true
+}
+
+data "aws_caller_identity" "c1" { provider = aws.c1 }
+
+data "aws_caller_identity" "c2" { provider = aws.c2 }
+
+# Allow bastion to reach EKS API (cluster primary SG) over 443
+resource "aws_security_group_rule" "c1_allow_bastion_to_eks_api" {
+  count                    = var.create_bastion_instances ? 1 : 0
+  provider                 = aws.c1
+  type                     = "ingress"
+  description              = "Allow bastion to reach EKS API"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = module.eks_c1.cluster_primary_security_group_id
+  source_security_group_id = aws_security_group.c1_bastion[0].id
+}
+
+resource "aws_security_group_rule" "c2_allow_bastion_to_eks_api" {
+  count                    = var.create_bastion_instances ? 1 : 0
+  provider                 = aws.c2
+  type                     = "ingress"
+  description              = "Allow bastion to reach EKS API"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = module.eks_c2.cluster_primary_security_group_id
+  source_security_group_id = aws_security_group.c2_bastion[0].id
+}
+
+# ----- Grant EKS cluster access to bastion roles (so kubectl auth works) -----
+resource "aws_eks_access_entry" "c1_bastion" {
+  count         = var.create_bastion_instances ? 1 : 0
+  provider      = aws.c1
+  cluster_name  = module.eks_c1.cluster_name
+  principal_arn = aws_iam_role.c1_bastion[0].arn
+}
+
+resource "aws_eks_access_policy_association" "c1_bastion_admin" {
+  count         = var.create_bastion_instances ? 1 : 0
+  provider      = aws.c1
+  cluster_name  = module.eks_c1.cluster_name
+  principal_arn = aws_iam_role.c1_bastion[0].arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope {
+    type = "cluster"
+  }
+}
+
+resource "aws_eks_access_entry" "c2_bastion" {
+  count         = var.create_bastion_instances ? 1 : 0
+  provider      = aws.c2
+  cluster_name  = module.eks_c2.cluster_name
+  principal_arn = aws_iam_role.c2_bastion[0].arn
+}
+
+resource "aws_eks_access_policy_association" "c2_bastion_admin" {
+  count         = var.create_bastion_instances ? 1 : 0
+  provider      = aws.c2
+  cluster_name  = module.eks_c2.cluster_name
+  principal_arn = aws_iam_role.c2_bastion[0].arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope {
+    type = "cluster"
+  }
+}
+
+# ---- expanded IAM inline policies (single set) with CloudFormation + STS + EKS versions ----
+resource "aws_iam_role_policy" "c1_bastion_deploy" {
+  count    = var.create_bastion_instances ? 1 : 0
+  provider = aws.c1
+  name     = "${var.project_name}-c1-bastion-deploy"
+  role     = aws_iam_role.c1_bastion[0].name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { "Sid" : "EKSDescribe", "Effect" : "Allow", "Action" : ["eks:DescribeCluster", "eks:ListClusters", "eks:DescribeClusterVersions"], "Resource" : "*" },
+      { "Sid" : "ReadDescribeInfra", "Effect" : "Allow", "Action" : ["ec2:Describe*", "elasticloadbalancing:Describe*", "elbv2:Describe*"], "Resource" : "*" },
+      { "Sid" : "IAMListAndOIDCReadGlobal", "Effect" : "Allow", "Action" : ["iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider", "iam:ListPolicies", "iam:GetPolicy", "iam:GetPolicyVersion", "iam:GetRole", "iam:ListAttachedRolePolicies"], "Resource" : "*" },
+      { "Sid" : "IAMCreatePolicyGlobal", "Effect" : "Allow", "Action" : ["iam:CreatePolicy"], "Resource" : "*" },
+      { "Sid" : "CFNForEksctl", "Effect" : "Allow", "Action" : ["cloudformation:CreateStack", "cloudformation:UpdateStack", "cloudformation:DescribeStacks", "cloudformation:DeleteStack", "cloudformation:ListStacks", "cloudformation:DescribeStackEvents", "cloudformation:DescribeStackResources", "cloudformation:GetTemplate", "cloudformation:CreateChangeSet", "cloudformation:ExecuteChangeSet", "cloudformation:DeleteChangeSet"], "Resource" : "*" },
+      { "Sid" : "STSGetCaller", "Effect" : "Allow", "Action" : ["sts:GetCallerIdentity"], "Resource" : "*" },
+      { "Sid" : "ScopedIAMForAlbControllerSetup", "Effect" : "Allow", "Action" : ["iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:TagRole"], "Resource" : ["arn:aws:iam::${data.aws_caller_identity.c1.account_id}:role/${var.project_name}-*", "arn:aws:iam::${data.aws_caller_identity.c1.account_id}:policy/${var.project_name}-*"] },
+      { "Sid" : "EksctlRoleOperations", "Effect" : "Allow", "Action" : ["iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:TagRole"], "Resource" : ["arn:aws:iam::${data.aws_caller_identity.c1.account_id}:role/eksctl-*"] }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "c2_bastion_deploy" {
+  count    = var.create_bastion_instances ? 1 : 0
+  provider = aws.c2
+  name     = "${var.project_name}-c2-bastion-deploy"
+  role     = aws_iam_role.c2_bastion[0].name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { "Sid" : "EKSDescribe", "Effect" : "Allow", "Action" : ["eks:DescribeCluster", "eks:ListClusters", "eks:DescribeClusterVersions"], "Resource" : "*" },
+      { "Sid" : "ReadDescribeInfra", "Effect" : "Allow", "Action" : ["ec2:Describe*", "elasticloadbalancing:Describe*", "elbv2:Describe*"], "Resource" : "*" },
+      { "Sid" : "IAMListAndOIDCReadGlobal", "Effect" : "Allow", "Action" : ["iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider", "iam:ListPolicies", "iam:GetPolicy", "iam:GetPolicyVersion", "iam:GetRole", "iam:ListAttachedRolePolicies"], "Resource" : "*" },
+      { "Sid" : "IAMCreatePolicyGlobal", "Effect" : "Allow", "Action" : ["iam:CreatePolicy"], "Resource" : "*" },
+      { "Sid" : "CFNForEksctl", "Effect" : "Allow", "Action" : ["cloudformation:CreateStack", "cloudformation:UpdateStack", "cloudformation:DescribeStacks", "cloudformation:DeleteStack", "cloudformation:ListStacks", "cloudformation:DescribeStackEvents", "cloudformation:DescribeStackResources", "cloudformation:GetTemplate", "cloudformation:CreateChangeSet", "cloudformation:ExecuteChangeSet", "cloudformation:DeleteChangeSet"], "Resource" : "*" },
+      { "Sid" : "STSGetCaller", "Effect" : "Allow", "Action" : ["sts:GetCallerIdentity"], "Resource" : "*" },
+      { "Sid" : "ScopedIAMForAlbControllerSetup", "Effect" : "Allow", "Action" : ["iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:TagRole"], "Resource" : ["arn:aws:iam::${data.aws_caller_identity.c2.account_id}:role/${var.project_name}-*", "arn:aws:iam::${data.aws_caller_identity.c2.account_id}:policy/${var.project_name}-*"] },
+      { "Sid" : "EksctlRoleOperations", "Effect" : "Allow", "Action" : ["iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:TagRole"], "Resource" : ["arn:aws:iam::${data.aws_caller_identity.c2.account_id}:role/eksctl-*"] }
+    ]
+  })
 }
 
 # ---------- Outputs ----------

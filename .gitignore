@@ -14,3 +14,4 @@ __pycache__/
 *.pub
 tfplan
 *.zip
+*.lock.info

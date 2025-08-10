@@ -34,3 +34,4 @@ module "eks_c1" {
 output "c1_cluster_name" { value = module.eks_c1.cluster_name }
 output "c1_cluster_endpoint" { value = module.eks_c1.cluster_endpoint }
 output "c1_node_security_group_id" { value = module.eks_c1.node_security_group_id }
+output "c1_cluster_primary_security_group_id" { value = module.eks_c1.cluster_primary_security_group_id }
