@@ -30,6 +30,10 @@ variable "c2_cluster_name" {
   default = "c2-eks"
 }
 
+variable "c1_node_security_group_id" {
+  type = string
+}
+
 provider "aws" {
   alias  = "c1"
   region = var.region_a
@@ -39,7 +43,6 @@ provider "aws" {
   alias  = "c2"
   region = var.region_b
 }
-
 # Import VPCs created in root by Name tag
 
 data "aws_vpc" "c1" {
@@ -161,6 +164,14 @@ resource "aws_vpc_security_group_ingress_rule" "c1_ep_ingress_nodes_http" {
   referenced_security_group_id = element(data.aws_security_groups.c1_node_sg.ids, 0)
 }
 
+resource "aws_vpc_security_group_ingress_rule" "c1_ep_ingress_c1_nodes_tcp" {
+  provider                     = aws.c1
+  security_group_id            = aws_security_group.c1_interface_ep.id
+  ip_protocol                  = "tcp"
+  from_port                    = 80
+  to_port                      = 80
+  referenced_security_group_id = var.c1_node_security_group_id
+}
 # Interface Endpoint in C1 that connects to the Endpoint Service in C2 (cross-region)
 resource "aws_vpc_endpoint" "c1_interface" {
   provider            = aws.c1

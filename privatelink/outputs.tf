@@ -11,3 +11,5 @@ output "interface_endpoint_dns" {
 output "interface_endpoint_dns_list" {
   value = [for e in aws_vpc_endpoint.c1_interface.dns_entry : e.dns_name]
 }
+
+output "c1_endpoint_security_group_id" { value = aws_security_group.c1_interface_ep.id }
