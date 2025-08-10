@@ -13,6 +13,11 @@ variable "c2_cluster_name" {
   default = "c2-eks"
 }
 
+variable "c3_cluster_name" {
+  type    = string
+  default = "c3-eks"
+}
+
 variable "c1_vpc_cidr" {
   type    = string
   default = "10.10.0.0/16"

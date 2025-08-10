@@ -15,6 +15,7 @@ terraform apply \
   -target=module.vpc_c2 \
   -target=module.eks_c1 \
   -target=module.eks_c2 \
+  -target=module.eks_c3 \
   -auto-approve
 
 # Apply remaining (no targets) to materialize outputs in state
@@ -28,10 +29,12 @@ REGION_A="$(terraform output -raw region_a 2>/dev/null || echo us-east-1)"
 REGION_B="$(terraform output -raw region_b 2>/dev/null || echo us-west-2)"
 C1_NAME="$(terraform output -raw c1_cluster_name 2>/dev/null || echo c1-eks)"
 C2_NAME="$(terraform output -raw c2_cluster_name 2>/dev/null || echo c2-eks)"
+C3_NAME="$(terraform output -raw c3_cluster_name 2>/dev/null || echo c3-eks)"
 
 # Configure kubeconfigs (may require private network access to EKS API)./deploy.sh
 aws eks --region "$REGION_A" update-kubeconfig --name "$C1_NAME" --alias C1 || true
 aws eks --region "$REGION_B" update-kubeconfig --name "$C2_NAME" --alias C2 || true
+aws eks --region "$REGION_A" update-kubeconfig --name "$C3_NAME" --alias C3 || true
 
 # If SSH key output exists, save it; otherwise skip silently
 if terraform output -raw bastion_ssh_private_key_pem >/dev/null 2>&1; then

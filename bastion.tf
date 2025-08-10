@@ -446,6 +446,19 @@ resource "aws_security_group_rule" "c2_allow_bastion_to_eks_api" {
   source_security_group_id = aws_security_group.c2_bastion[0].id
 }
 
+# Allow C1 bastion to reach the C3 EKS API (since c3 is also in region_a VPC)
+resource "aws_security_group_rule" "c3_allow_bastion_to_eks_api" {
+  count                    = var.create_bastion_instances ? 1 : 0
+  provider                 = aws.c1
+  type                     = "ingress"
+  description              = "Allow C1 bastion to reach C3 EKS API"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = module.eks_c3.cluster_primary_security_group_id
+  source_security_group_id = aws_security_group.c1_bastion[0].id
+}
+
 # ----- Grant EKS cluster access to bastion roles (so kubectl auth works) -----
 resource "aws_eks_access_entry" "c1_bastion" {
   count         = var.create_bastion_instances ? 1 : 0
@@ -477,6 +490,25 @@ resource "aws_eks_access_policy_association" "c2_bastion_admin" {
   provider      = aws.c2
   cluster_name  = module.eks_c2.cluster_name
   principal_arn = aws_iam_role.c2_bastion[0].arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope {
+    type = "cluster"
+  }
+}
+
+# Grant C1 bastion role access to C3 cluster
+resource "aws_eks_access_entry" "c3_bastion" {
+  count         = var.create_bastion_instances ? 1 : 0
+  provider      = aws.c1
+  cluster_name  = module.eks_c3.cluster_name
+  principal_arn = aws_iam_role.c1_bastion[0].arn
+}
+
+resource "aws_eks_access_policy_association" "c3_bastion_admin" {
+  count         = var.create_bastion_instances ? 1 : 0
+  provider      = aws.c1
+  cluster_name  = module.eks_c3.cluster_name
+  principal_arn = aws_iam_role.c1_bastion[0].arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope {
     type = "cluster"
