@@ -1,0 +1,16 @@
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfvars
+*.tfvars.json
+*.retry
+**/.DS_Store
+__pycache__/
+*.pyc
+*.pem
+*.pdf
+*.out
+*.pub
+tfplan
+*.zip
