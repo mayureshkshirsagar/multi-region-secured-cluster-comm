@@ -119,6 +119,6 @@ if __name__ == "__main__":
     print("Unsuccessful endpoints:")
     for url in unsuccessful_endpoints:
         print(f"{url} failed")
-    print("Successful endpoints:")
+    print("\nSuccessful endpoints:")
     for url in successful_endpoints:
         print(f"{url} succeeded")
