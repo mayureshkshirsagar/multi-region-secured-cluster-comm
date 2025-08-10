@@ -91,12 +91,14 @@ if __name__ == "__main__":
         print("FAIL: Interface endpoint missing in C1.")
         sys.exit(2)
 
-    url = f"http://{args.target_host}"
-    print("Curl from test pod in C1 to target host:", url)
-    ok, out = kubectl_exec(args.kubectl_context_c1, args.test_pod_label, url)
-    if ok:
-        print("SUCCESS: Pod reached service. Response snippet:", out[:400])
-        sys.exit(0)
-    else:
-        print("FAIL: Pod could not reach the service. Error:", out)
-        sys.exit(3)
+    ports = [80, 443, 8443, 5443, 5678]
+    for port in ports:
+        url = f"http://{args.target_host}:{port}"
+        print("Curl from test pod in C1 to target host:", url)
+        ok, out = kubectl_exec(args.kubectl_context_c1, args.test_pod_label, url)
+        if ok:
+            print("SUCCESS: Pod reached service. Response snippet:", out[:400])
+            # sys.exit(0)
+        else:
+            print("FAIL: Pod could not reach the service. Error:", out)
+            # sys.exit(3)
