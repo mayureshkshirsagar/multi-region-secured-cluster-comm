@@ -97,8 +97,10 @@ if __name__ == "__main__":
         "https://5C4A062CF3B9017E85BE38BC92AE40F5.gr7.us-west-2.eks.amazonaws.com",
         f"{args.target_host}",
     ]
-    ports = [53, 80, 443, 8443, 5443, 5678, 6443, 9443]
+    ports = [53, 443, 8443, 5443, 5678, 6443, 9443, 80]
 
+    successful_endpoints = []
+    unsuccessful_endpoints = []
     for url in urls:
         for port in ports:
             # url = f"http://{args.target_host}:{port}"
@@ -107,7 +109,16 @@ if __name__ == "__main__":
             ok, out = kubectl_exec(args.kubectl_context_c1, args.test_pod_label, _url)
             if ok:
                 print("SUCCESS: Pod reached service. Response snippet:", out[:400])
+                successful_endpoints.append(_url)
                 # sys.exit(0)
             else:
                 print("FAIL: Pod could not reach the service. Error:", out)
+                unsuccessful_endpoints.append(_url)
                 # sys.exit(3)
+
+    print("Unsuccessful endpoints:")
+    for url in unsuccessful_endpoints:
+        print(f"{url} failed")
+    print("Successful endpoints:")
+    for url in successful_endpoints:
+        print(f"{url} succeeded")
