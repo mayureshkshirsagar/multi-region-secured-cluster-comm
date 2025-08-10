@@ -10,13 +10,6 @@ terraform {
 variable "region_a" { type = string }
 variable "region_b" { type = string }
 
-# Optional: provide NLB ARN directly to skip discovery
-variable "nlb_arn_override" {
-  type        = string
-  default     = ""
-  description = "If set, use this NLB ARN instead of discovering by kubernetes.io/service-name tag"
-}
-
 provider "aws" {
   alias  = "c1"
   region = var.region_a
@@ -77,14 +70,8 @@ variable "k8s_service_tag" {
 }
 
 data "aws_lb" "c2_nlb" {
-  count    = var.nlb_arn_override == "" ? 1 : 0
   provider = aws.c2
   tags     = { "kubernetes.io/service-name" = var.k8s_service_tag }
-}
-
-locals {
-  nlb_arn  = var.nlb_arn_override != "" ? var.nlb_arn_override : data.aws_lb.c2_nlb[0].arn
-  nlb_name = var.nlb_arn_override != "" ? element(split("/", var.nlb_arn_override), 1) : data.aws_lb.c2_nlb[0].name
 }
 
 # Endpoint Service in C2 that exposes the NLB via PrivateLink
@@ -92,7 +79,7 @@ resource "aws_vpc_endpoint_service" "c2_service" {
   provider = aws.c2
 
   acceptance_required        = false
-  network_load_balancer_arns = [local.nlb_arn]
+  network_load_balancer_arns = [data.aws_lb.c2_nlb.arn]
 
   allowed_principals = [
     "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.c1.account_id}:root"
@@ -152,8 +139,3 @@ resource "aws_vpc_endpoint" "c1_interface" {
 
   dns_options { dns_record_ip_type = "ipv4" }
 }
-
-output "endpoint_service_name" { value = aws_vpc_endpoint_service.c2_service.service_name }
-output "nlb_name" { value = local.nlb_name }
-output "interface_endpoint_id" { value = aws_vpc_endpoint.c1_interface.id }
-output "interface_endpoint_dns" { value = one(aws_vpc_endpoint.c1_interface.dns_entry[*].dns_name) }
