@@ -91,14 +91,23 @@ if __name__ == "__main__":
         print("FAIL: Interface endpoint missing in C1.")
         sys.exit(2)
 
-    ports = [80, 443, 8443, 5443, 5678]
-    for port in ports:
-        url = f"http://{args.target_host}:{port}"
-        print("Curl from test pod in C1 to target host:", url)
-        ok, out = kubectl_exec(args.kubectl_context_c1, args.test_pod_label, url)
-        if ok:
-            print("SUCCESS: Pod reached service. Response snippet:", out[:400])
-            # sys.exit(0)
-        else:
-            print("FAIL: Pod could not reach the service. Error:", out)
-            # sys.exit(3)
+    urls = [
+        "k8s-default-echolb-06040fa13f-3905dc5f1dde1231.elb.us-west-2.amazonaws.com",
+        "k8s-default-echo2lb-12c7555b49-6d69b41e1aef55f6.elb.us-west-2.amazonaws.com",
+        "https://5C4A062CF3B9017E85BE38BC92AE40F5.gr7.us-west-2.eks.amazonaws.com",
+        f"{args.target_host}",
+    ]
+    ports = [53, 80, 443, 8443, 5443, 5678, 6443, 9443]
+
+    for url in urls:
+        for port in ports:
+            # url = f"http://{args.target_host}:{port}"
+            _url = f"{url}:{port}"
+            print("Curl from test pod in C1 to target host:", _url)
+            ok, out = kubectl_exec(args.kubectl_context_c1, args.test_pod_label, _url)
+            if ok:
+                print("SUCCESS: Pod reached service. Response snippet:", out[:400])
+                # sys.exit(0)
+            else:
+                print("FAIL: Pod could not reach the service. Error:", out)
+                # sys.exit(3)
